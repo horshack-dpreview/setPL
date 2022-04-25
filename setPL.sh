@@ -79,6 +79,14 @@ writeMsr() {
 printTurboStat_PL1_PL2() {
     turbostat sleep 0 2>&1 | grep MSR_PKG_POWER_LIMIT -A 2
 }
+verifyAppInstalled() {
+    toolName=$1
+    res=$(command -v $toolName);
+    if [ -z $res ]; then
+        echo "Required app '${toolName}' is not installed"
+        exit 1 
+    fi
+}
 
 #
 # script entry point
@@ -97,6 +105,13 @@ if [ $(id -u) -ne 0 ]; then
     echo "This script must be run with root privileges (root user or with 'su')"
     exit 1
 fi
+
+# make sure the necessary apps are installed
+verifyAppInstalled 'devmem2'
+verifyAppInstalled 'rdmsr'
+verifyAppInstalled 'wrmsr'
+verifyAppInstalled 'turbostat'
+verifyAppInstalled 'setpci'
 
 # print current values
 echo "**** Current PL values from 'turbostat'"
