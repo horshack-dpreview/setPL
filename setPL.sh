@@ -81,8 +81,7 @@ printTurboStat_PL1_PL2() {
 }
 verifyAppInstalled() {
     toolName=$1
-    res=$(command -v $toolName);
-    if [ -z $res ]; then
+    if ! command -v "$toolName" &> /dev/null; then
         echo "Required app '${toolName}' is not installed"
         exit 1 
     fi
@@ -161,7 +160,17 @@ printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08
 # set the new value for PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
 isMMIOLocked=$(((high & 0x80000000) == 0x80000000))
 if [ $isMMIOLocked -eq $TRUE ]; then 
-    echo "**** Warning: MMIO limit reg already locked, can't change"
+    if ((low & INTEL_PL1_ENABLE_BITS_LOW || high & INTEL_PL1_ENABLE_BITS_HIGH)); then
+        # MMIO is locked but either PL1 and/or PL2 are enabled, meaning we can't disable PL1+PL2 this power-on session
+        echo "**** Warning: MMIO limit reg already locked but with PL1 and/or PL2 enabled, can't change"
+    else
+        # MMIO is locked with PL1/PL2 disabled, likely from our script doing so on previous invocation this power-on session
+        if [ $F_DISABLE_MMIO_PL1_PL2 -eq $TRUE ]; then
+            echo "**** MMIO limit reg locked with PL1/PL2 disabled on previous invocation (expected)"
+        else
+            echo "**** Warning: MMIO limit already locked so can't set PL1/PL2 values in it"
+        fi
+    fi
 else
     if [ $F_DISABLE_MMIO_PL1_PL2 -eq $TRUE ]; then
         # set MMIO to zero, which will also set the PL1/PL2 enable bits for the MMIO reg to FALSE
