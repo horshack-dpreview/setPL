@@ -59,7 +59,9 @@ F_DISABLE_MMIO_PL1_PL2=$TRUE    # if TRUE, MMIO reg is cleared (all bits set to 
 #
 readPhysMemWord() {
     addrHex=$(printf "0x%x" $1)
-    val=$(devmem2 $addrHex w | awk -F":" '/Value at address.*:/ { print $2 }' | tr -d " ")
+    # sample devmem2 output that I need to parse:
+    #   Value at address 0xFEDC0000 (0x7efd68cf4000): 0xEF32C519
+    val=$(devmem2 $addrHex w | sed -nE 's/Value at address.*: (0x[0-9A-E]+)/\1/p')
     echo $val
 }
 writePhysMemWord() {
@@ -155,6 +157,10 @@ raplLimitAddr=$((mchbar + INTEL_PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU))
 # get the current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
 low=$(readPhysMemWord $((raplLimitAddr+0)))
 high=$(readPhysMemWord $((raplLimitAddr+4)))
+if [[ -z $low || -z $high ]] ; then
+    printf "Error reading physical memory at 0x%x\n" $raplLimitAddr
+    exit 1
+fi
 printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $high $low 
 
 # set the new value for PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
