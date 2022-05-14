@@ -11,7 +11,7 @@
 # is the higher limit (watts), which will apply when the CPU is under load.
 # The processor returns from PL2 to PL1 after a configured amount of time to
 # avoid overheating, even if it's still under load. The purpose of this script
-# is to defeat that, typically by setting PL1 and PL2 both to high values, 
+# is to defeat that, typically by setting PL1 and PL2 both to high values,
 # including the same high value.
 #
 # There are two configuration registers which define the PL1/PL2 limits applied.
@@ -52,31 +52,88 @@ INTEL_PL1_PL2_ENABLE_BITS=$((INTEL_PL1_ENABLE_BITS_LOW | (INTEL_PL2_ENABLE_BITS_
 # operational flags
 #
 F_DISABLE_MMIO_PL1_PL2=$TRUE    # if TRUE, MMIO reg is cleared (all bits set to zero, including PL1/PL2 enable bits)
-                                # if FALSE, MMIO reg PL1/PL2 is enabled, with PL1/PL2 set to same value as MSR 
+                                # if FALSE, MMIO reg PL1/PL2 is enabled, with PL1/PL2 set to same value as MSR
 
 #
 # functions
 #
+
+#
+# Parameters:   $1 - Hex address
+# Return Value: Value read (hex ASCII)
+# Terminates script on error
+#
 readPhysMemWord() {
-    addrHex=$(printf "0x%x" $1)
-    # sample devmem2 output that I need to parse:
+    #
+    # sample devmem2 output that we need to parse:
     #   Value at address 0xFEDC0000 (0x7efd68cf4000): 0xEF32C519
-    val=$(devmem2 $addrHex w | sed -nE 's/Value at address.*: (0x[0-9A-E]+)/\1/p')
-    echo $val
+    #
+    printf -v addrHex "0x%x" $1
+    output=$(devmem2 $addrHex w 2>&1)
+    if [ $? -eq 0 ]; then
+        retVal=$(echo "$output" | sed -nE 's/Value at address.*: (0x[0-9A-E]+)/\1/p')
+        if [ -z "$retVal" ]; then
+            echo "Error parsing devmem2 read output"
+            exit 1
+        fi
+        # else successful - fall through to return from function
+    else
+        echo "Error reading from physical memory via devmem2. If due to permissions you may need to disable Secure Boot."
+        echo "devmem2 output: ${output}"
+        exit 1
+    fi
 }
+
+
+#
+# Parameters:   $1 - Hex address
+# Return Value: None
+# Terminates script on error
+#
 writePhysMemWord() {
-    addrHex=$(printf "0x%x" $1)
-    val=$(printf "0x%x" $2)
-    result=$(devmem2 $addrHex w $val)
+    printf -v addrHex "0x%x" $1
+    printf -v val "0x%x" $2
+    output=$(devmem2 $addrHex w $val 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "Error writing to physical memory via devmem2. If due to permissions you may need to disable Secure Boot."
+        echo "devmem2 output: ${output}"
+        exit 1
+    fi
 }
+
+
+#
+# Parameters:   $1 - Hex address
+# Return Value: Value read (hex ASCII)
+# Terminates script on error
+#
 readMsr() {
-    addrHex=$(printf "0x%x" $1)
-    echo $(rdmsr --hexadecimal --zero-pad --c-language $addrHex)
+    printf -v addrHex "0x%x" $1
+    output=$(rdmsr --hexadecimal --zero-pad --c-language $addrHex 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "Error reading MSR. If due to permissions you may need to disable Secure Boot."
+        echo "rdmsr output: ${output}"
+        exit 1
+    fi
+    retVal=$output
 }
+
+
+#
+# Parameters:   $1 - Hex address
+#               $2 - Hex value to write
+# Return Value: None
+# Terminates script on error
+#
 writeMsr() {
-    addrHex=$(printf "0x%x" $1)
-    val=$(printf "0x%x" $2)
-    result=$(wrmsr $addrHex $val)
+    printf -v addrHex "0x%x" $1
+    printf -v val "0x%x" $2
+    output=$(wrmsr $addrHex $val 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "Error writing MSR. If due to permissions you may need to disable Secure Boot."
+        echo "wrmsr output: ${output}"
+        exit 1
+    fi
 }
 printTurboStat_PL1_PL2() {
     turbostat sleep 0 2>&1 | grep MSR_PKG_POWER_LIMIT -A 2
@@ -85,7 +142,18 @@ verifyAppInstalled() {
     toolName=$1
     if ! command -v "$toolName" &> /dev/null; then
         echo "Required app '${toolName}' is not installed"
-        exit 1 
+        exit 1
+    fi
+}
+verifyTurbostatInstallation() {
+    # sample warning when turbostat not properly installed for running kernel:
+    #   WARNING: turbostat not found for kernel 5.15.0-30
+    output=$(turbostat 2>&1 --help | grep "WARNING: turbostat not found for kernel");
+    if [ -n "$output" ]; then
+        kernelVer=$(uname -r)
+        echo "turbostat is installed but not the package needed for current kernel"
+        echo "Maybe try sudo apt install linux-tools-${kernelVer}"
+        exit 1
     fi
 }
 
@@ -101,9 +169,9 @@ fi
 PL1=$(($1 * 1000000))
 PL2=$(($2 * 1000000))
 
-# make sure script is running with root privilege 
+# make sure script is running with root privilege
 if [ $(id -u) -ne 0 ]; then
-    echo "This script must be run with root privileges (root user or with 'su')"
+    echo "This script must be run with root privileges (root user or with 'sudo')"
     exit 1
 fi
 
@@ -113,6 +181,7 @@ verifyAppInstalled 'rdmsr'
 verifyAppInstalled 'wrmsr'
 verifyAppInstalled 'turbostat'
 verifyAppInstalled 'setpci'
+verifyTurbostatInstallation
 
 # print current values
 echo "**** Current PL values from 'turbostat'"
@@ -124,7 +193,7 @@ echo "$PL1" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_power_lim
 echo "$PL2" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_1_power_limit_uw
 
 # enable both PL1 and PL2 (bit 15 and 47) if not already enabled
-msr=$(readMsr $INTEL_MSR_PKG_POWER_LIMIT)
+readMsr $INTEL_MSR_PKG_POWER_LIMIT; msr=$retVal
 is_PL1_PL2_Enabled=$(((msr & INTEL_PL1_PL2_ENABLE_BITS) == INTEL_PL1_PL2_ENABLE_BITS))
 if [ $is_PL1_PL2_Enabled -ne $TRUE ]; then
     echo "**** Enabling PL1 and PL2 in MSR_PKG_POWER_LIMIT"
@@ -145,7 +214,7 @@ printTurboStat_PL1_PL2
 mchbar="0x"$(setpci -s 00:00.0 48.l)
 printf "**** MCHBAR is 0x%x\n" $mchbar
 isMchbarEnabled=$(((mchbar & 0x1) != 0))
-if [ $isMchbarEnabled -ne $TRUE ]; then 
+if [ $isMchbarEnabled -ne $TRUE ]; then
     echo "MCHBAR is not enabled!!!"
     exit 1
 fi
@@ -155,17 +224,13 @@ mchbar=$((mchbar & ~1)) # clear off enable bit so value represents valid physica
 raplLimitAddr=$((mchbar + INTEL_PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU))
 
 # get the current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
-low=$(readPhysMemWord $((raplLimitAddr+0)))
-high=$(readPhysMemWord $((raplLimitAddr+4)))
-if [[ -z $low || -z $high ]] ; then
-    printf "Error reading physical memory at 0x%x\n" $raplLimitAddr
-    exit 1
-fi
-printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $high $low 
+readPhysMemWord $((raplLimitAddr+0)); low=$retVal
+readPhysMemWord $((raplLimitAddr+4)); high=$retVal
+printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $high $low
 
 # set the new value for PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
 isMMIOLocked=$(((high & 0x80000000) == 0x80000000))
-if [ $isMMIOLocked -eq $TRUE ]; then 
+if [ $isMMIOLocked -eq $TRUE ]; then
     if ((low & INTEL_PL1_ENABLE_BITS_LOW || high & INTEL_PL1_ENABLE_BITS_HIGH)); then
         # MMIO is locked but either PL1 and/or PL2 are enabled, meaning we can't disable PL1+PL2 this power-on session
         echo "**** Warning: MMIO limit reg already locked but with PL1 and/or PL2 enabled, can't change"
@@ -188,8 +253,8 @@ else
         highNew=$(((msr & 0xFFFFFFFF00000000)>>32))
     fi
     highNew=$((highNew | 0x80000000))   # set lock bit
-    printf "**** Setting PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $highNew $lowNew 
+    printf "**** Setting PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $highNew $lowNew
     writePhysMemWord $((raplLimitAddr+0)) $lowNew
-    writePhysMemWord $((raplLimitAddr+4)) $highNew 
+    writePhysMemWord $((raplLimitAddr+4)) $highNew
 fi
 
