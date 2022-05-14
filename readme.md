@@ -25,6 +25,9 @@ I typically set PL1 and PL2 to the same equal values. This doesn't mean the proc
 
 Many thanks and credit to the author of the Windows ThrottleStop application for finding and applying these techniques - I used the knowledge gained from that app to write this script
 
+## System Requirements
+Most Linux installations required Secure Boot to be disabled in order to access the Intel MSRs (Model-specific registers) and physical memory.
+
 ## Finding the optimal PL1/PL2 values
 Most Intel processors will thermal throttle at 100C, so you generally want to set PL1/PL2 to values somewhat below to where the processor will reach 100C. Use whatever temperature you feel comfortable with. My comfort level is at around 90C.
 
