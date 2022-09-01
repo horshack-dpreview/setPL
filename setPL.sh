@@ -38,6 +38,7 @@
 #
 TRUE=1
 FALSE=0
+APP_NAME="setPL"
 
 #
 # intel constants
@@ -141,10 +142,30 @@ printTurboStat_PL1_PL2() {
 verifyAppInstalled() {
     toolName=$1
     if ! command -v "$toolName" &> /dev/null; then
-        echo "Required app '${toolName}' is not installed"
+        # app not installed
+       retVal=1 
+    else
+        retVal=0
+    fi
+}
+verifyAppsInstalled() {
+    local appsList
+    local appsMissingList
+    local appName
+    appsList=("$@")
+    appsMissingList=()
+    for appName in "${appsList[@]}"; do
+        verifyAppInstalled "$appName"
+        if [ $retVal -eq 1 ]; then
+            appsMissingList+=("$appName")
+        fi
+    done
+    if [ ${#appsMissingList[@]} -gt 0 ]; then
+        echo "The following apps must be installed to run ${APP_NAME}: ${appsMissingList[@]}"
         exit 1
     fi
 }
+
 verifyTurbostatInstallation() {
     # sample warning when turbostat not properly installed for running kernel:
     #   WARNING: turbostat not found for kernel 5.15.0-30
@@ -162,7 +183,7 @@ verifyTurbostatInstallation() {
 # arguments: <PL1 value in watts> <PL2 value in watts>
 #
 if [ "$#" != "2" ]; then
-    echo "Usage: setPL <PL1 watts> <PL2 watts>"
+    echo "Usage: ${APP_NAME} <PL1 watts> <PL2 watts>"
     exit 1
 fi
 # convert values to micro-watts
@@ -176,11 +197,8 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 # make sure the necessary apps are installed
-verifyAppInstalled 'devmem2'
-verifyAppInstalled 'rdmsr'
-verifyAppInstalled 'wrmsr'
-verifyAppInstalled 'turbostat'
-verifyAppInstalled 'setpci'
+requiredApps=('devmem2' 'rdmsr' 'wrmsr' 'turbostat' 'setpci')
+verifyAppsInstalled "${requiredApps[@]}"
 verifyTurbostatInstallation
 
 # print current values
