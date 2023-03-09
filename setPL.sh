@@ -45,9 +45,8 @@ APP_NAME="setPL"
 #
 INTEL_MSR_PKG_POWER_LIMIT=0x610
 INTEL_PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU=0x59a0
-INTEL_PL1_ENABLE_BITS_LOW=0x00008000
-INTEL_PL2_ENABLE_BITS_HIGH=0x00008000
-INTEL_PL1_PL2_ENABLE_BITS=$((INTEL_PL1_ENABLE_BITS_LOW | (INTEL_PL2_ENABLE_BITS_HIGH<<32)))
+INTEL_PL_ENABLE_BITS=0x00008000    #identical for PL1_ENABLE_BITS_LOW and PL2_ENABLE_BITS_HIGH
+INTEL_PL1_PL2_ENABLE_BITS=$((INTEL_PL_ENABLE_BITS | (INTEL_PL_ENABLE_BITS<<32)))
 
 #
 # operational flags
@@ -182,13 +181,20 @@ verifyTurbostatInstallation() {
 # script entry point
 # arguments: <PL1 value in watts> <PL2 value in watts>
 #
-if [ "$#" != "2" ]; then
+if [ "$#" == "0" ]; then
+    echo "!! Running SetPL in read-only mode !!"
+    readOnly=$TRUE
+
+elif [ "$#" != "2" ]; then
     echo "Usage: ${APP_NAME} <PL1 watts> <PL2 watts>"
     exit 1
+
+else
+    readOnly=$FALSE
+    # convert values to micro-watts
+    PL1=$(($1 * 1000000))
+    PL2=$(($2 * 1000000))
 fi
-# convert values to micro-watts
-PL1=$(($1 * 1000000))
-PL2=$(($2 * 1000000))
 
 # make sure script is running with root privilege
 if [ $(id -u) -ne 0 ]; then
@@ -205,20 +211,26 @@ verifyTurbostatInstallation
 echo "**** Current PL values from 'turbostat'"
 printTurboStat_PL1_PL2
 
-# set new PL1/PL2 values
-echo "**** Setting PL1=$PL1 and PL2=$PL2 in /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_*_power_limit_uw"
-echo "$PL1" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_power_limit_uw
-echo "$PL2" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_1_power_limit_uw
+if [ $readOnly -ne $TRUE ]; then
+    # set new PL1/PL2 values
+    echo "**** Setting PL1=$PL1 and PL2=$PL2 in /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_*_power_limit_uw"
+    echo "$PL1" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_power_limit_uw
+    echo "$PL2" > /sys/class/powercap/intel-rapl/intel-rapl:0/constraint_1_power_limit_uw
+fi
 
 # enable both PL1 and PL2 (bit 15 and 47) if not already enabled
 readMsr $INTEL_MSR_PKG_POWER_LIMIT; msr=$retVal
 is_PL1_PL2_Enabled=$(((msr & INTEL_PL1_PL2_ENABLE_BITS) == INTEL_PL1_PL2_ENABLE_BITS))
 if [ $is_PL1_PL2_Enabled -ne $TRUE ]; then
-    echo "**** Enabling PL1 and PL2 in MSR_PKG_POWER_LIMIT"
-    msr=$((msr | INTEL_PL1_PL2_ENABLE_BITS))
-    writeMsr $INTEL_MSR_PKG_POWER_LIMIT $msr
+    if [ $readOnly -ne $TRUE ]; then
+        echo "**** Enabling PL1 and PL2 in MSR_PKG_POWER_LIMIT"
+        msr=$((msr | INTEL_PL1_PL2_ENABLE_BITS))
+        writeMsr $INTEL_MSR_PKG_POWER_LIMIT $msr
+    else
+        echo "**** PL1 and PL2 are DISabled in MSR_PKG_POWER_LIMIT"
+    fi
 else
-    echo "**** PL1 and PL2 already enabled in MSR_PKG_POWER_LIMIT"
+    echo "**** PL1 and PL2 already ENabled in MSR_PKG_POWER_LIMIT"
 fi
 
 echo "**** New PL values from 'turbostat'"
@@ -249,7 +261,7 @@ printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08
 # set the new value for PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
 isMMIOLocked=$(((high & 0x80000000) == 0x80000000))
 if [ $isMMIOLocked -eq $TRUE ]; then
-    if ((low & INTEL_PL1_ENABLE_BITS_LOW || high & INTEL_PL1_ENABLE_BITS_HIGH)); then
+    if ((low & INTEL_PL_ENABLE_BITS || high & INTEL_PL_ENABLE_BITS)); then
         # MMIO is locked but either PL1 and/or PL2 are enabled, meaning we can't disable PL1+PL2 this power-on session
         echo "**** Warning: MMIO limit reg already locked but with PL1 and/or PL2 enabled, can't change"
     else
@@ -261,18 +273,21 @@ if [ $isMMIOLocked -eq $TRUE ]; then
         fi
     fi
 else
-    if [ $F_DISABLE_MMIO_PL1_PL2 -eq $TRUE ]; then
-        # set MMIO to zero, which will also set the PL1/PL2 enable bits for the MMIO reg to FALSE
-        lowNew=0x00000000;
-        highNew=0x00000000;
-    else
-        # set MMIO to the same PL1/PL2 values as the MSR reg
-        lowNew=$((msr & 0x00000000FFFFFFFF))
-        highNew=$(((msr & 0xFFFFFFFF00000000)>>32))
+    echo "**** MMIO limit reg is NOT locked"
+    if [ $readOnly -ne $TRUE ]; then
+        if [ $F_DISABLE_MMIO_PL1_PL2 -eq $TRUE ]; then
+            # set MMIO to zero, which will also set the PL1/PL2 enable bits for the MMIO reg to FALSE
+            lowNew=0x00000000;
+            highNew=0x00000000;
+        else
+            # set MMIO to the same PL1/PL2 values as the MSR reg
+            lowNew=$((msr & 0x00000000FFFFFFFF))
+            highNew=$(((msr & 0xFFFFFFFF00000000)>>32))
+        fi
+        highNew=$((highNew | 0x80000000))   # set lock bit
+        printf "**** Setting PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $highNew $lowNew
+        writePhysMemWord $((raplLimitAddr+0)) $lowNew
+        writePhysMemWord $((raplLimitAddr+4)) $highNew
     fi
-    highNew=$((highNew | 0x80000000))   # set lock bit
-    printf "**** Setting PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08x\n" $highNew $lowNew
-    writePhysMemWord $((raplLimitAddr+0)) $lowNew
-    writePhysMemWord $((raplLimitAddr+4)) $highNew
 fi
 
