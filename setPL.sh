@@ -33,6 +33,8 @@
 # to write this script
 #
 
+set -u
+
 #
 # general constants
 #
@@ -249,7 +251,7 @@ printf "**** Current value of PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU = 0x%08x:0x%08
 # set the new value for PACKAGE_RAPL_LIMIT_0_0_0_MCHBAR_PCU
 isMMIOLocked=$(((high & 0x80000000) == 0x80000000))
 if [ $isMMIOLocked -eq $TRUE ]; then
-    if ((low & INTEL_PL1_ENABLE_BITS_LOW || high & INTEL_PL1_ENABLE_BITS_HIGH)); then
+    if ((low & INTEL_PL1_ENABLE_BITS_LOW || high & INTEL_PL2_ENABLE_BITS_HIGH)); then
         # MMIO is locked but either PL1 and/or PL2 are enabled, meaning we can't disable PL1+PL2 this power-on session
         echo "**** Warning: MMIO limit reg already locked but with PL1 and/or PL2 enabled, can't change"
     else
