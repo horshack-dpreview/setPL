@@ -4,7 +4,9 @@
 Linux script for setting the PL1/PL2 power limits on modern Intel processors
 
 ## Installation
-Download the script by right-clicking on [setPL.h](https://raw.githubusercontent.com/horshack-dpreview/setPL/master/setPL.sh) and choosing "Save Link As..." After downloading, make it executable via "chmod +x setPL.sh"
+Download the script by right-clicking on [setPL.sh](https://raw.githubusercontent.com/horshack-dpreview/setPL/master/setPL.sh) and choosing "Save Link As..." After downloading, make it executable via "chmod +x setPL.sh"
+
+In case devmem2 is not installed (e.g. Arch Linux), you can get the source for it via [SUSE](https://packagehub.suse.com/packages/devmem2/) or an older version via [GitHub](https://github.com/hackndev/tools/blob/master/devmem2.c). Compile the program and place it in /usr/bin.
 
 ## Use
 `./setPL.sh <PL1 watts> <PL2 watts>`
