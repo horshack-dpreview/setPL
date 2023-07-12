@@ -74,7 +74,7 @@ readPhysMemWord() {
     printf -v addrHex "0x%x" $1
     output=$(devmem2 $addrHex w 2>&1)
     if [ $? -eq 0 ]; then
-        retVal=$(echo "$output" | sed -nE 's/Value at address.*: (0x[0-9A-E]+)/\1/p')
+        retVal=$(echo "$output" | sed -nE 's/(Value|Read) at address.*: (0x[0-9A-E]+)/\2/p')
         if [ -z "$retVal" ]; then
             echo "Error parsing devmem2 read output"
             exit 1
